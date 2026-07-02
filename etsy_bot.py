@@ -639,10 +639,8 @@ def generate(message):
         history.append({"role": "assistant", "content": text})
         add_to_text_history(uid, text)
 
-        if not is_unlimited(uid) and is_new_topic:
-            user_free_left[uid] -= 1
-
         if not is_unlimited(uid):
+            user_free_left[uid] -= 1
             left = get_free_left(uid)
             if left <= 0:
                 footer = "\n\n─────────────────\n❌ No free listings left — /subscription for unlimited"
