@@ -15,7 +15,7 @@ client = Groq(api_key=GROQ_API_KEY)
 
 OWNER_ID = 1249820876
 OWNER_USERNAME = "sunafery"
-BOT_USERNAME = "EtsyScribeAI_bot"
+BOT_USERNAME = "REPLACE_WITH_YOUR_BOT_USERNAME"
 FREE_LIMIT = 3
 
 STARS_MONTHLY = 300
@@ -328,15 +328,20 @@ def menu_command(message):
 @bot.message_handler(commands=['balance'])
 def balance_command(message):
     uid = message.from_user.id
-    if is_unlimited(uid):
+    if is_unlimited(uid) and uid != OWNER_ID:
         expiry = pro_users.get(uid)
         if expiry:
-            bot.reply_to(message, "💎 You have an active subscription — unlimited listings until " + expiry.strftime("%m/%d/%Y") + ".")
+            bot.reply_to(message, "💎 Active subscription — unlimited listings until " + expiry.strftime("%m/%d/%Y") + ".")
         else:
             bot.reply_to(message, "💎 You have unlimited access.")
+    elif uid == OWNER_ID:
+        bot.reply_to(message, "💎 Creator account — unlimited access.")
     else:
         left = get_free_left(uid)
-        bot.reply_to(message, "🎁 Free listings remaining: " + str(left) + " of " + str(FREE_LIMIT) + "\n\nGet unlimited with /subscription.")
+        if left <= 0:
+            bot.reply_to(message, "❌ You have 0 free listings left.\n\nGet unlimited with /subscription.")
+        else:
+            bot.reply_to(message, "🎁 Free listings remaining: " + str(left) + "\n\nGet unlimited with /subscription.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("menu_"))
 def main_menu_callback(call):
@@ -575,7 +580,6 @@ def handle_photo(message):
         if left <= 0:
             send_out_of_requests(uid, message.chat.id)
             return
-    bot.send_chat_action(message.chat.id, 'typing')
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded = bot.download_file(file_info.file_path)
@@ -596,8 +600,11 @@ def handle_photo(message):
         add_to_text_history(uid, text)
         if not is_unlimited(uid):
             user_free_left[uid] -= 1
-            left = user_free_left[uid]
-            footer = "\n\n─────────────────\n🎁 Free listings left: " + str(left) + " — /subscription for unlimited"
+            left = get_free_left(uid)
+            if left <= 0:
+                footer = "\n\n─────────────────\n❌ No free listings left — /subscription for unlimited"
+            else:
+                footer = "\n\n─────────────────\n🎁 Free listings left: " + str(left) + " — /subscription for unlimited"
         else:
             footer = ""
         bot.reply_to(message, text + footer)
@@ -612,7 +619,7 @@ def generate(message):
     settings_ = get_settings(uid)
     is_new_topic = len(history) == 0
 
-    if not is_unlimited(uid) and is_new_topic:
+    if not is_unlimited(uid):
         left = get_free_left(uid)
         if left <= 0:
             send_out_of_requests(uid, message.chat.id)
@@ -634,8 +641,13 @@ def generate(message):
 
         if not is_unlimited(uid) and is_new_topic:
             user_free_left[uid] -= 1
-            left = user_free_left[uid]
-            footer = "\n\n─────────────────\n🎁 Free listings left: " + str(left) + " — /subscription for unlimited"
+
+        if not is_unlimited(uid):
+            left = get_free_left(uid)
+            if left <= 0:
+                footer = "\n\n─────────────────\n❌ No free listings left — /subscription for unlimited"
+            else:
+                footer = "\n\n─────────────────\n🎁 Free listings left: " + str(left) + " — /subscription for unlimited"
         else:
             footer = ""
 
