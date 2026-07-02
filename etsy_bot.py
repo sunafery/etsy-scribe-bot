@@ -31,6 +31,35 @@ referred_by = {}
 all_users = set()
 REFERRAL_BONUS = 2
 
+CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
+
+import urllib.request
+import json as json_module
+
+def create_crypto_invoice(amount_usd, plan_name, payload):
+    if not CRYPTO_BOT_TOKEN:
+        return None
+    try:
+        data = json_module.dumps({
+            "asset": "USDT",
+            "amount": str(amount_usd),
+            "description": "EtsyScribe — " + plan_name,
+            "payload": payload,
+            "expires_in": 3600
+        }).encode()
+        req = urllib.request.Request(
+            "https://pay.crypt.bot/api/createInvoice",
+            data=data,
+            headers={"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json_module.loads(resp.read())
+            if result.get("ok"):
+                return result["result"]
+    except Exception:
+        pass
+    return None
+
 MODELS = {
     "smart": "llama-3.3-70b-versatile",
     "fast": "llama-3.1-8b-instant"
@@ -407,21 +436,53 @@ def payment_callback(call):
         prices = [LabeledPrice(label="EtsyScribe — 1 year", amount=STARS_YEARLY)]
         bot.send_invoice(call.message.chat.id, title="EtsyScribe Yearly", description="Unlimited Etsy listings for 1 year (save 37%)", invoice_payload="sub_yearly", provider_token="", currency="XTR", prices=prices)
     elif call.data == "pay_usdt":
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("✉️ Contact to confirm payment", url="https://t.me/" + OWNER_USERNAME))
-        markup.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_subscription"))
-        bot.send_message(call.message.chat.id,
-            "💰 Pay with USDT (TRC-20)\n\n"
-            "Send USDT to this address:\n"
-            "`" + USDT_ADDRESS + "`\n\n"
-            "Rates:\n"
-            "Monthly: $3.99 USDT\n"
-            "6 Months: $17.99 USDT\n"
-            "Yearly: $29.99 USDT\n\n"
-            "After sending: tap the button below, send your transaction screenshot + /myid. "
-            "I'll activate within 1 hour.", reply_markup=markup)
+        plans = {
+            "pay_usdt_monthly": (3.99, "Monthly", "crypto_monthly", 30),
+            "pay_usdt_6month": (17.99, "6 Months", "crypto_6month", 180),
+            "pay_usdt_yearly": (29.99, "Yearly", "crypto_yearly", 365)
+        }
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("🗓 Monthly — $3.99 USDT", callback_data="pay_usdt_monthly"),
+            InlineKeyboardButton("📅 6 Months — $17.99 USDT (save 25%)", callback_data="pay_usdt_6month"),
+            InlineKeyboardButton("🏆 Yearly — $29.99 USDT (save 37%)", callback_data="pay_usdt_yearly"),
+            InlineKeyboardButton("⬅️ Back", callback_data="menu_subscription")
+        )
+        bot.send_message(call.message.chat.id, "💰 Choose your USDT plan:", reply_markup=markup)
 
-@bot.pre_checkout_query_handler(func=lambda query: True)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("pay_usdt_"))
+def usdt_plan_callback(call):
+    uid = call.from_user.id
+    bot.answer_callback_query(call.id)
+    plans = {
+        "pay_usdt_monthly": (3.99, "Monthly", "crypto_monthly", 30),
+        "pay_usdt_6month": (17.99, "6 Months (save 25%)", "crypto_6month", 180),
+        "pay_usdt_yearly": (29.99, "Yearly (save 37%)", "crypto_yearly", 365)
+    }
+    plan = plans.get(call.data)
+    if not plan:
+        return
+    amount, name, payload, days = plan
+    invoice = create_crypto_invoice(amount, name, payload + "_" + str(uid) + "_" + str(days))
+    if invoice:
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("💰 Pay $" + str(amount) + " USDT", url=invoice["pay_url"]))
+        markup.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt"))
+        bot.send_message(call.message.chat.id,
+            "💰 " + name + " — $" + str(amount) + " USDT\n\n"
+            "Tap the button below to pay. Payment is processed instantly by CryptoBot.\n"
+            "Your subscription activates automatically after payment.",
+            reply_markup=markup)
+    else:
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("✉️ Contact support", url="https://t.me/" + OWNER_USERNAME))
+        bot.send_message(call.message.chat.id,
+            "⚠️ Crypto payment is being set up. Please contact support to pay via USDT manually.",
+            reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text and m.text.startswith("crypto_") if m.text else False)
+def check_crypto_payment(message):
+    pass
 def checkout(query):
     bot.answer_pre_checkout_query(query.id, ok=True)
 
